@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>⚛️ Chain Reaction - Multiplayer Game</title>
+    <link rel="stylesheet" href="css/style.css?v=3">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <h1>⚛️ Chain Reaction</h1>
+            <p class="subtitle">Turn-based strategy game for 2-5 players</p>
+        </header>
+
+        <!-- Connection Setup -->
+        <div id="setup" class="setup-screen">
+            <div class="setup-card">
+                <h2>Join a Game</h2>
+                
+                <div class="form-group">
+                    <label for="serverUrl">Server URL:</label>
+                    <input 
+                        type="text" 
+                        id="serverUrl" 
+                        placeholder="wss://your-server.onrender.com"
+                        value="ws://localhost:3000"
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="roomId">Room ID:</label>
+                    <input 
+                        type="text" 
+                        id="roomId" 
+                        placeholder="Leave blank for new room"
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="playerName">Your Name:</label>
+                    <input 
+                        type="text" 
+                        id="playerName" 
+                        placeholder="Enter your name"
+                    >
+                </div>
+
+                <div class="color-picker">
+                    <label>Choose Color:</label>
+                    <div class="colors">
+                        <div class="color-option" data-color="#FF6B6B" style="background: #FF6B6B;" title="Red"></div>
+                        <div class="color-option" data-color="#4ECDC4" style="background: #4ECDC4;" title="Teal"></div>
+                        <div class="color-option" data-color="#FFE66D" style="background: #FFE66D;" title="Yellow"></div>
+                        <div class="color-option" data-color="#95E1D3" style="background: #95E1D3;" title="Mint"></div>
+                        <div class="color-option" data-color="#C7CEEA" style="background: #C7CEEA;" title="Purple"></div>
+                    </div>
+                </div>
+
+                <div id="status" class="status"></div>
+
+                <button id="joinBtn" class="btn btn-primary">Join Game</button>
+            </div>
+        </div>
+
+        <!-- Game Screen -->
+        <div id="gameScreen" class="game-screen" style="display: none;">
+            <div class="game-header">
+                <div class="room-info">
+                    <h2 id="roomDisplay">Room: -</h2>
+                    <p id="playerDisplay">Player: -</p>
+                </div>
+                <button id="leaveBtn" class="btn btn-secondary">Leave Game</button>
+            </div>
+
+            <div class="game-container">
+                <!-- Game Board -->
+                <div class="board-section">
+                    <canvas id="gameBoard" width="600" height="600"></canvas>
+                    <div id="turnIndicator" class="turn-indicator">
+                        Waiting for players...
+                    </div>
+                </div>
+
+                <!-- Sidebar -->
+                <div class="sidebar">
+                    <!-- Players List -->
+                    <div class="panel">
+                        <h3>Players</h3>
+                        <div id="playersList" class="players-list"></div>
+                    </div>
+
+                    <!-- Game Info -->
+                    <div class="panel">
+                        <h3>Game Info</h3>
+                        <div class="info-item">
+                            <span class="label">Moves:</span>
+                            <span id="moveCount" class="value">0</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="label">Board Size:</span>
+                            <span class="value">6x6</span>
+                        </div>
+                    </div>
+
+                    <!-- Chat -->
+                    <div class="panel">
+                        <h3>Chat</h3>
+                        <div id="chatBox" class="chat-box"></div>
+                        <div class="chat-input-group">
+                            <input 
+                                type="text" 
+                                id="chatInput" 
+                                class="chat-input" 
+                                placeholder="Type message..."
+                            >
+                            <button id="sendBtn" class="btn btn-small">Send</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Game Over Screen -->
+            <div id="gameOverScreen" class="game-over-screen" style="display: none;">
+                <div class="game-over-card">
+                    <h2 id="gameOverTitle">Game Over</h2>
+                    <p id="gameOverMessage">Waiting for game to end...</p>
+                    <button id="playAgainBtn" class="btn btn-primary">Play Again</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/simple-peer@9.11.1/simplepeer.min.js"></script>
+    <script src="js/game-state.js"></script>
+    <script src="js/renderer.js?v=3"></script>
+    <script src="js/particles.js"></script>
+    <script src="js/webrtc.js"></script>
+    <script src="js/signaling.js"></script>
+    <script src="js/game.js"></script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: chain-reaction
+    runtime: rust
+    plan: free
+    
+    # Build command
+    buildCommand: cargo build --release
+    
+    # Start command
+    startCommand: ./target/release/server
+    
+    # Environment variables
+    envVars:
+      - key: PORT
+        value: "3000"
+      - key: RUST_LOG
+        value: "info"
+      - key: RUST_BACKTRACE
+        value: "1"
+    
+    # Health check
+    healthCheckPath: /health
