@@ -66,19 +66,25 @@ class SignalingClient {
      * Normalize a server origin into the WebSocket endpoint exposed by Rust
      */
     getWebSocketUrl() {
-        const url = new URL(this.serverUrl);
-
-        if (url.protocol === 'http:') {
-            url.protocol = 'ws:';
-        } else if (url.protocol === 'https:') {
-            url.protocol = 'wss:';
+        let parsedUrl;
+        try {
+            parsedUrl = new URL(this.serverUrl, window.location.href);
+        } catch (e) {
+            const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            parsedUrl = new URL(`${proto}//${window.location.host}/ws`);
         }
 
-        if (!url.pathname || url.pathname === '/') {
-            url.pathname = '/ws';
+        if (parsedUrl.protocol === 'http:') {
+            parsedUrl.protocol = 'ws:';
+        } else if (parsedUrl.protocol === 'https:') {
+            parsedUrl.protocol = 'wss:';
         }
 
-        return url.toString();
+        if (!parsedUrl.pathname || parsedUrl.pathname === '/') {
+            parsedUrl.pathname = '/ws';
+        }
+
+        return parsedUrl.toString();
     }
 
     /**

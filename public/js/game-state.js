@@ -15,6 +15,7 @@ class GameState {
         );
         this.players = new Map();
         this.currentTurn = null;
+        this.turnOrder = [];
         this.eliminated = [];
         this.moveCount = 0;
         this.isOver = false;
@@ -29,6 +30,7 @@ class GameState {
     initializeFromServer(state) {
         this.board = state.board || [];
         this.currentTurn = state.current_turn;
+        this.turnOrder = state.turn_order || this.turnOrder || [];
         this.eliminated = state.eliminated || [];
         this.moveCount = state.move_count || 0;
         this.isOver = state.is_over || false;
@@ -49,6 +51,9 @@ class GameState {
      * Add a player to the game
      */
     addPlayer(id, color) {
+        if (!this.turnOrder.includes(id)) {
+            this.turnOrder.push(id);
+        }
         this.players.set(id, {
             id,
             color,
@@ -78,6 +83,11 @@ class GameState {
             return { valid: false, reason: 'Out of bounds' };
         }
 
+        // Must have at least 2 players in room to start playing
+        if (this.players.size < 2) {
+            return { valid: false, reason: 'Waiting for more players to join' };
+        }
+
         // Check if it's the player's turn
         if (this.currentTurn !== playerId) {
             return { valid: false, reason: 'Not your turn' };
@@ -88,11 +98,11 @@ class GameState {
             return { valid: false, reason: 'Game is over' };
         }
 
-        // Can place on empty cells or opponent's cells
         const cell = this.board[row][col];
-        if (cell.owner === playerId && cell.particle_count >= this.getCriticalMass(row, col)) {
-            // Can't add to a cell that would explode (server will handle)
-            // But actually we can - server validates
+        // Enforce rule: Players cannot place particles on opponent cells directly!
+        // Capturing opponent cells is only possible through chain reaction explosions.
+        if (cell.owner && cell.owner !== playerId) {
+            return { valid: false, reason: "Cannot place particle on an opponent's cell" };
         }
 
         return { valid: true };
@@ -107,15 +117,14 @@ class GameState {
 
         const cell = this.board[row][col];
 
-        // Overtake if opponent's cell
+        // Opponent cells cannot be directly clicked
         if (cell.owner && cell.owner !== playerId) {
-            cell.owner = playerId;
-            cell.particle_count = 1;
-        } else if (cell.owner === playerId) {
-            // Add to own cell
+            return;
+        }
+
+        if (cell.owner === playerId) {
             cell.particle_count++;
         } else {
-            // Empty cell
             cell.owner = playerId;
             cell.particle_count = 1;
         }
@@ -183,7 +192,9 @@ class GameState {
     advanceTurn() {
         if (!this.currentTurn) return;
 
-        const playerIds = Array.from(this.players.keys());
+        const playerIds = this.turnOrder && this.turnOrder.length > 0 
+            ? this.turnOrder 
+            : Array.from(this.players.keys());
         const currentIndex = playerIds.indexOf(this.currentTurn);
         let nextIndex = (currentIndex + 1) % playerIds.length;
 
@@ -191,7 +202,8 @@ class GameState {
         let attempts = 0;
         while (attempts < playerIds.length) {
             const nextPlayer = playerIds[nextIndex];
-            if (this.players.get(nextPlayer).is_alive) {
+            const player = this.players.get(nextPlayer);
+            if (player && player.is_alive) {
                 this.currentTurn = nextPlayer;
                 return;
             }

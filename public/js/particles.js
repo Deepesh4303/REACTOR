@@ -45,7 +45,7 @@ class ParticleAnimation {
 }
 
 class ExplosionVisual {
-    constructor(row, col, color, delay = 0, duration = 420) {
+    constructor(row, col, color, delay = 0, duration = 460) {
         this.row = row;
         this.col = col;
         this.color = color;
@@ -53,6 +53,14 @@ class ExplosionVisual {
         this.duration = duration;
         this.startTime = performance.now() + delay;
         this.done = false;
+
+        // Generate burst sparks with outward velocity
+        this.sparks = Array.from({ length: 16 }, (_, i) => ({
+            angle: (i / 16) * Math.PI * 2 + (Math.random() - 0.5) * 0.45,
+            speed: 0.8 + Math.random() * 1.0,
+            size: 1.5 + Math.random() * 2.2,
+            color: Math.random() > 0.4 ? '#ffffff' : color
+        }));
     }
 
     getProgress(now = performance.now()) {
@@ -73,28 +81,39 @@ class AnimationManager {
         this.renderer = renderer;
         this.animations = [];
         this.explosions = [];
+        this.shakeIntensity = 0;
     }
 
     /**
      * Play the exact chain reaction returned by the Rust game engine.
+     * Fires laser explosion sounds and triggers visceral screen recoil.
      */
     playExplosions(explosions = []) {
-        const STEP = 105;
+        const STEP = 110;
 
         explosions.forEach((explosion, index) => {
             const color = this.renderer.getPlayerColor(explosion.owner);
+            const delay = index * STEP;
 
-            // The source cell flashes first.
+            // Schedule laser sound effect and screen recoil for each blast
+            setTimeout(() => {
+                if (window.soundManager) {
+                    window.soundManager.playLaserExplosion(index);
+                }
+                this.shakeIntensity = Math.min(this.shakeIntensity + 5.0, 11);
+            }, delay);
+
+            // Epic multi-stage explosion visual
             this.explosions.push(
                 new ExplosionVisual(
                     explosion.row,
                     explosion.col,
                     color,
-                    index * STEP
+                    delay
                 )
             );
 
-            // Then one particle travels to each valid neighbour.
+            // Particles shooting to each valid neighbour
             const adjacent = [
                 { row: explosion.row - 1, col: explosion.col },
                 { row: explosion.row + 1, col: explosion.col },
@@ -116,8 +135,8 @@ class AnimationManager {
                             adj.row,
                             adj.col,
                             color,
-                            index * STEP + 25,
-                            260,
+                            delay + 25,
+                            270,
                             directionIndex * 0.9 + index
                         )
                     );
@@ -129,6 +148,17 @@ class AnimationManager {
     update() {
         const now = performance.now();
 
+        // Screen shake decay
+        if (this.shakeIntensity > 0.2) {
+            this.shakeIntensity *= 0.86;
+            const sx = (Math.random() - 0.5) * this.shakeIntensity;
+            const sy = (Math.random() - 0.5) * this.shakeIntensity;
+            this.renderer.setShake(sx, sy);
+        } else {
+            this.shakeIntensity = 0;
+            this.renderer.setShake(0, 0);
+        }
+
         this.animations = this.animations.filter(animation => {
             animation.getProgress(now);
             return !animation.complete();
@@ -139,13 +169,13 @@ class AnimationManager {
             return !effect.done;
         });
 
-        return this.animations.length > 0 || this.explosions.length > 0;
+        return this.animations.length > 0 || this.explosions.length > 0 || this.shakeIntensity > 0;
     }
 
     draw() {
         const now = performance.now();
 
-        // Explosion rings first, travelling particles on top.
+        // Explosion rings and flashes first, travelling particles on top
         for (const effect of this.explosions) {
             this.renderer.drawExplosion(effect);
         }
@@ -153,7 +183,7 @@ class AnimationManager {
         for (const animation of this.animations) {
             animation.getProgress(now);
 
-            // Do not draw a delayed animation before its start.
+            // Do not draw a delayed animation before its start
             if (now < animation.startTime) continue;
 
             this.renderer.drawAnimationFrame(animation);
@@ -175,10 +205,12 @@ class AnimationManager {
     clear() {
         this.animations = [];
         this.explosions = [];
+        this.shakeIntensity = 0;
+        this.renderer.setShake(0, 0);
     }
 
     isAnimating() {
-        return this.animations.length > 0 || this.explosions.length > 0;
+        return this.animations.length > 0 || this.explosions.length > 0 || this.shakeIntensity > 0;
     }
 }
 

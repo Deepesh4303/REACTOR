@@ -10,8 +10,13 @@
     <div class="container">
         <!-- Header -->
         <header class="header">
-            <h1>⚛️ Chain Reaction</h1>
-            <p class="subtitle">Turn-based strategy game for 2-5 players</p>
+            <div class="header-content">
+                <h1>⚛️ Chain Reaction</h1>
+                <p class="subtitle">Turn-based strategy game for 2-5 players</p>
+            </div>
+            <div class="header-controls">
+                <button id="soundToggleBtn" class="btn btn-small btn-sound">🔊 Sound On</button>
+            </div>
         </header>
 
         <!-- Connection Setup -->
@@ -24,7 +29,7 @@
                     <input 
                         type="text" 
                         id="serverUrl" 
-                        placeholder="wss://your-server.onrender.com"
+                        placeholder="ws://localhost:3000"
                         value="ws://localhost:3000"
                     >
                 </div>
@@ -71,7 +76,10 @@
                     <h2 id="roomDisplay">Room: -</h2>
                     <p id="playerDisplay">Player: -</p>
                 </div>
-                <button id="leaveBtn" class="btn btn-secondary">Leave Game</button>
+                <div class="game-header-actions">
+                    <button id="copyLinkBtn" class="btn btn-small btn-copy" title="Copy Invite Link">🔗 Invite Link</button>
+                    <button id="leaveBtn" class="btn btn-secondary">Leave Game</button>
+                </div>
             </div>
 
             <div class="game-container">
@@ -134,8 +142,9 @@
 
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/simple-peer@9.11.1/simplepeer.min.js"></script>
+    <script src="js/audio.js"></script>
     <script src="js/game-state.js"></script>
-    <script src="js/renderer.js?v=3"></script>
+    <script src="js/renderer.js?v=4"></script>
     <script src="js/particles.js"></script>
     <script src="js/webrtc.js"></script>
     <script src="js/signaling.js"></script>

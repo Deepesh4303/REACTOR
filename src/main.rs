@@ -95,13 +95,13 @@ async fn handle_socket(
                                 };
 
                                 // Send room state to joining player
-                                let players = r.get_players();
+                                let players = r.get_players().await;
                                 let game_state = r.get_state().await;
 
                                 if let Ok(response) = serde_json::to_string(&Message::RoomState {
                                     player_id: pid.clone(),
-                                    players,
-                                    game_state,
+                                    players: players.clone(),
+                                    game_state: game_state.clone(),
                                 }) {
                                     let _ = sender
                                         .lock()
@@ -120,6 +120,13 @@ async fn handle_socket(
                                         .send(axum::extract::ws::Message::Text(response))
                                         .await;
                                 }
+
+                                // Broadcast updated room state to existing room occupants
+                                let _ = r.tx.send(Message::RoomState {
+                                    player_id: pid.clone(),
+                                    players,
+                                    game_state,
+                                });
 
                                 // Subscribe to room broadcasts
                                 let mut rx = r.tx.subscribe();

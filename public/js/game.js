@@ -29,11 +29,54 @@ class ChainReactionGame {
      * Setup UI event listeners
      */
     setupUI() {
+        // Auto-detect server URL and query params
+        const serverInput = document.getElementById('serverUrl');
+        if (serverInput && window.location.host) {
+            const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            serverInput.value = `${proto}//${window.location.host}`;
+        }
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const roomParam = urlParams.get('room');
+        if (roomParam) {
+            const roomInput = document.getElementById('roomId');
+            if (roomInput) roomInput.value = roomParam;
+        }
+
         // Setup screen
         document.getElementById('joinBtn').addEventListener('click', () => this.joinGame());
         document.getElementById('leaveBtn').addEventListener('click', () => this.leaveGame());
         document.getElementById('sendBtn').addEventListener('click', () => this.sendChat());
         document.getElementById('playAgainBtn').addEventListener('click', () => this.leaveGame());
+
+        // Copy room invite link
+        document.getElementById('copyLinkBtn')?.addEventListener('click', () => {
+            const shareUrl = `${window.location.origin}${window.location.pathname}?room=${this.roomId}`;
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(shareUrl).then(() => {
+                    this.showStatus('Room invite link copied to clipboard!', 'success');
+                }).catch(() => {
+                    prompt('Copy this room URL to share with friends:', shareUrl);
+                });
+            } else {
+                prompt('Copy this room URL to share with friends:', shareUrl);
+            }
+        });
+
+        // Sound toggle button
+        const soundBtn = document.getElementById('soundToggleBtn');
+        if (soundBtn) {
+            const updateSoundIcon = () => {
+                const muted = window.soundManager?.isMuted;
+                soundBtn.textContent = muted ? '🔇 Sound Off' : '🔊 Sound On';
+                soundBtn.classList.toggle('muted', !!muted);
+            };
+            updateSoundIcon();
+            soundBtn.addEventListener('click', () => {
+                window.soundManager?.toggleMute();
+                updateSoundIcon();
+            });
+        }
         
         // Color picker
         document.querySelectorAll('.color-option').forEach(option => {
@@ -92,15 +135,13 @@ class ChainReactionGame {
     }
 
     async joinGame() {
-        const serverUrl = document.getElementById('serverUrl').value.trim();
+        const defaultWs = window.location.host 
+            ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`
+            : 'ws://localhost:3000';
+        const serverUrl = document.getElementById('serverUrl').value.trim() || defaultWs;
         const roomId = document.getElementById('roomId').value.trim() || this.generateRoomId();
         const playerName = document.getElementById('playerName').value.trim() || `Player_${Math.random().toString(36).substring(7)}`;
         const selectedColor = this.getAvailableColor();
-
-        if (!serverUrl) {
-            this.showStatus('Please enter server URL', 'error');
-            return;
-        }
 
         this.updateStatus('Connecting...');
 
@@ -176,12 +217,17 @@ class ChainReactionGame {
     handleRoomState(message) {
         console.log('Room state:', message);
 
-        // Initialize WebRTC client
-        this.webrtcClient = new WebRTCClient(this.myPlayerId);
-        this.setupWebRTCCallbacks();
+        // Initialize WebRTC client only once per session
+        if (!this.webrtcClient) {
+            this.webrtcClient = new WebRTCClient(this.myPlayerId);
+            this.setupWebRTCCallbacks();
+        }
 
         // Update game state from server
-        this.gameState.initializeFromServer(message.game_state);
+        if (message.game_state) {
+            this.gameState.initializeFromServer(message.game_state);
+            this.renderer.setGameState(this.gameState);
+        }
         
         // Add all players
         for (const player of message.players) {
@@ -191,9 +237,9 @@ class ChainReactionGame {
             }
         }
 
-        // Connect to other players
+        // Connect to new peers that haven't connected yet
         for (const player of message.players) {
-            if (player.id !== this.myPlayerId) {
+            if (player.id !== this.myPlayerId && !this.webrtcClient.peers.has(player.id)) {
                 console.log(`Initiating WebRTC connection to ${player.id}`);
                 const isInitiator = this.myPlayerId > player.id;
                 this.webrtcClient.connectToPeer(player.id, isInitiator);
@@ -206,7 +252,8 @@ class ChainReactionGame {
         document.getElementById('roomDisplay').textContent = `Room: ${this.roomId}`;
         document.getElementById('playerDisplay').textContent = `Player: ${this.myPlayerId}`;
 
-        this.updatePlayersList();
+        this.checkGameStart();
+        this.updateUI();
         this.updateStatus(`Room ready with ${message.players.length} players`);
     }
 
@@ -220,8 +267,7 @@ class ChainReactionGame {
 
         this.webrtcClient.onGameMessage((message) => {
             if (message.type === 'move') {
-                // Server is authoritative. Do not apply the same move a second
-                // time here; MoveResult contains the authoritative final state.
+                // Server is authoritative.
                 console.log(`Received peer move from ${message.playerId}: (${message.row}, ${message.col})`);
             }
         });
@@ -250,10 +296,13 @@ class ChainReactionGame {
         this.gameState.addPlayer(message.player_id, message.color);
         
         // Initiate connection to new player
-        const isInitiator = this.myPlayerId > message.player_id;
-        this.webrtcClient?.connectToPeer(message.player_id, isInitiator);
+        if (this.webrtcClient && !this.webrtcClient.peers.has(message.player_id)) {
+            const isInitiator = this.myPlayerId > message.player_id;
+            this.webrtcClient.connectToPeer(message.player_id, isInitiator);
+        }
         
-        this.updatePlayersList();
+        this.checkGameStart();
+        this.updateUI();
     }
 
     /**
@@ -263,7 +312,8 @@ class ChainReactionGame {
         console.log(`Player left: ${message.player_id}`);
         this.gameState.players.delete(message.player_id);
         this.connectedPeers.delete(message.player_id);
-        this.updatePlayersList();
+        this.checkGameStart();
+        this.updateUI();
     }
 
     /**
@@ -273,6 +323,7 @@ class ChainReactionGame {
         if (!message.success) {
             console.error('Move failed:', message.error);
             this.showStatus(`Move failed: ${message.error}`, 'error');
+            window.soundManager?.playInvalidMove();
             return;
         }
 
@@ -281,8 +332,7 @@ class ChainReactionGame {
             this.renderer.setGameState(this.gameState);
         }
 
-        // Rust sends the exact ordered explosion list. Animate it rather than
-        // trying to reconstruct a chain reaction from the final board.
+        // Rust sends the exact ordered explosion list. Animate it and trigger laser audio.
         if (Array.isArray(message.explosions) && message.explosions.length) {
             this.animationManager.playExplosions(message.explosions);
         }
@@ -298,15 +348,12 @@ class ChainReactionGame {
      * Check if game should start
      */
     checkGameStart() {
-        if (!this.gameStarted && this.gameState.players.size >= 2) {
-            const allPlayers = this.gameState.players.size;
-            const connectedCount = this.connectedPeers.size + 1; // +1 for self
-
-            if (connectedCount >= allPlayers) {
-                console.log('All peers connected! Game starting.');
-                this.gameStarted = true;
-                this.updateStatus(`Game started! ${this.gameState.currentTurn}'s turn`);
-            }
+        if (this.gameState.players.size >= 2) {
+            this.gameStarted = true;
+            this.updateUI();
+        } else {
+            this.gameStarted = false;
+            this.updateStatus('Waiting for more players to join (need 2+)...');
         }
     }
 
@@ -318,13 +365,20 @@ class ChainReactionGame {
             return;
         }
 
-        const canPlay = this.gameStarted || (this.gameState.players.size > 0 && this.gameState.currentTurn === this.myPlayerId);
-        if (!canPlay) {
+        // Game requires at least 2 players to play
+        if (this.gameState.players.size < 2) {
+            this.showStatus('Waiting for opponents to join (need 2+ players)...', 'info');
+            return;
+        }
+
+        // Block input while chain reaction animation is playing
+        if (this.animationManager.isAnimating()) {
             return;
         }
 
         if (this.gameState.currentTurn !== this.myPlayerId) {
             this.showStatus('Not your turn', 'error');
+            window.soundManager?.playInvalidMove();
             return;
         }
 
@@ -336,8 +390,12 @@ class ChainReactionGame {
 
         if (!validation.valid) {
             this.showStatus(`Invalid move: ${validation.reason}`, 'error');
+            window.soundManager?.playInvalidMove();
             return;
         }
+
+        // Play placement blip sound
+        window.soundManager?.playPlaceParticle();
 
         // Send one authoritative move. Rust resolves the complete chain
         // reaction and broadcasts the resulting state to every client.
@@ -351,7 +409,17 @@ class ChainReactionGame {
         const coords = this.renderer.getGridCoordinates(e.clientX, e.clientY);
         this.renderer.setHover(coords);
         if (coords) {
-            this.canvas.style.cursor = 'pointer';
+            const cell = this.gameState.getCell(coords.row, coords.col);
+            const isOpponent = cell && cell.owner && cell.owner !== this.myPlayerId;
+            const isMyTurn = this.gameState.currentTurn === this.myPlayerId && this.gameState.players.size >= 2;
+
+            if (isOpponent) {
+                this.canvas.style.cursor = 'not-allowed';
+            } else if (isMyTurn && !this.animationManager.isAnimating()) {
+                this.canvas.style.cursor = 'pointer';
+            } else {
+                this.canvas.style.cursor = 'default';
+            }
         } else {
             this.canvas.style.cursor = 'default';
         }
@@ -470,15 +538,24 @@ class ChainReactionGame {
      * Update UI elements
      */
     updateUI() {
-        document.getElementById('moveCount').textContent = this.gameState.moveCount;
+        const moveCountEl = document.getElementById('moveCount');
+        if (moveCountEl) moveCountEl.textContent = this.gameState.moveCount;
 
-        const currentPlayer = this.gameState.getCurrentPlayer();
-        if (currentPlayer) {
-            const turnText = currentPlayer.id === this.myPlayerId 
-                ? 'Your turn!' 
-                : `${currentPlayer.id}'s turn`;
-            document.getElementById('turnIndicator').textContent = turnText;
-            document.getElementById('turnIndicator').style.color = currentPlayer.color;
+        const indicator = document.getElementById('turnIndicator');
+        if (indicator) {
+            if (this.gameState.players.size < 2) {
+                indicator.textContent = '⏳ Waiting for more players to join (need 2+)...';
+                indicator.style.color = '#FFE66D';
+            } else {
+                const currentPlayer = this.gameState.getCurrentPlayer();
+                if (currentPlayer) {
+                    const isMyTurn = currentPlayer.id === this.myPlayerId;
+                    indicator.textContent = isMyTurn 
+                        ? '⭐ Your turn! Click an empty or your cell.' 
+                        : `${currentPlayer.id}'s turn`;
+                    indicator.style.color = currentPlayer.color;
+                }
+            }
         }
 
         this.updatePlayersList();
@@ -494,9 +571,9 @@ class ChainReactionGame {
 
         if (this.gameState.winner === this.myPlayerId) {
             title.textContent = '🎉 You Won!';
-            message.textContent = 'Congratulations!';
+            message.textContent = 'Congratulations! You claimed the entire reactor grid!';
+            window.soundManager?.playVictory();
         } else if (this.gameState.winner) {
-            const winner = this.gameState.players.get(this.gameState.winner);
             title.textContent = '😢 Game Over';
             message.textContent = `${this.gameState.winner} won the game!`;
         } else {

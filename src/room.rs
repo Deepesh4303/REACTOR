@@ -80,6 +80,7 @@ pub struct Room {
     pub id: String,
     pub game: Arc<tokio::sync::Mutex<GameState>>,
     pub players: Arc<DashMap<String, PlayerInfo>>,
+    pub player_order: Arc<tokio::sync::Mutex<Vec<String>>>,
     pub tx: broadcast::Sender<Message>,
     pub max_players: usize,
 }
@@ -103,6 +104,7 @@ impl Room {
                 GameState::new(vec![], 6, 6)
             )),
             players: Arc::new(DashMap::new()),
+            player_order: Arc::new(tokio::sync::Mutex::new(Vec::new())),
             tx,
             max_players,
         }
@@ -131,8 +133,14 @@ impl Room {
 
     /// Add a player to the room
     pub async fn add_player(&self, player_id: String, color: String) -> Result<String, String> {
-        if self.players.len() >= self.max_players {
+        if self.players.len() >= self.max_players && !self.players.contains_key(&player_id) {
             return Err("Room is full".to_string());
+        }
+
+        let mut game = self.game.lock().await;
+        // If game is in progress and player is new, reject mid-game join
+        if game.move_count > 0 && !self.players.contains_key(&player_id) {
+            return Err("Game is already in progress in this room".to_string());
         }
 
         let assigned_color = self.resolve_color(&color)?;
@@ -144,28 +152,18 @@ impl Room {
 
         self.players.insert(player_id.clone(), player_info);
 
-        // Update game state if this is the first player
-        if self.players.len() == 1 {
-            let mut game = self.game.lock().await;
-            *game = GameState::new(
-                self.players
-                    .iter()
-                    .map(|ref_multi| (ref_multi.key().clone(), ref_multi.value().color.clone()))
-                    .collect(),
-                6,
-                6,
-            );
-        } else {
-            // Reinitialize game with updated players
-            let mut game = self.game.lock().await;
-            *game = GameState::new(
-                self.players
-                    .iter()
-                    .map(|ref_multi| (ref_multi.key().clone(), ref_multi.value().color.clone()))
-                    .collect(),
-                6,
-                6,
-            );
+        let mut order = self.player_order.lock().await;
+        if !order.contains(&player_id) {
+            order.push(player_id.clone());
+        }
+
+        // If the game hasn't started yet, reinitialize with ordered players
+        if game.move_count == 0 {
+            let ordered_players: Vec<(String, String)> = order
+                .iter()
+                .filter_map(|pid| self.players.get(pid).map(|p| (p.id.clone(), p.color.clone())))
+                .collect();
+            *game = GameState::new(ordered_players, 6, 6);
         }
 
         // Broadcast player joined
@@ -181,11 +179,28 @@ impl Room {
     /// Remove a player from the room
     pub async fn remove_player(&self, player_id: &str) {
         self.players.remove(player_id);
+        {
+            let mut order = self.player_order.lock().await;
+            order.retain(|id| id != player_id);
+        }
+
+        let mut game = self.game.lock().await;
+        game.remove_player_from_game(player_id);
 
         let msg = Message::PlayerLeft {
             player_id: player_id.to_string(),
         };
         let _ = self.tx.send(msg);
+
+        // Also broadcast the updated game state so remaining clients know if turn shifted
+        let state_msg = Message::MoveResult {
+            player_id: player_id.to_string(),
+            success: true,
+            error: None,
+            game_state: Some(game.to_json()),
+            explosions: vec![],
+        };
+        let _ = self.tx.send(state_msg);
     }
 
     /// Apply a player's move
@@ -216,11 +231,12 @@ impl Room {
         game.to_json()
     }
 
-    /// Get list of players in room
-    pub fn get_players(&self) -> Vec<PlayerInfo> {
-        self.players
+    /// Get list of players in room in deterministic joined order
+    pub async fn get_players(&self) -> Vec<PlayerInfo> {
+        let order = self.player_order.lock().await;
+        order
             .iter()
-            .map(|ref_multi| ref_multi.value().clone())
+            .filter_map(|pid| self.players.get(pid).map(|p| p.clone()))
             .collect()
     }
 
@@ -298,7 +314,7 @@ mod tests {
         let result = room.add_player("p2".to_string(), "#FF6B6B".to_string()).await;
 
         assert!(result.is_ok(), "player should still join with a free color");
-        assert_eq!(room.get_players().len(), 2);
+        assert_eq!(room.get_players().await.len(), 2);
         assert_ne!(result.unwrap(), "#FF6B6B");
     }
 }
