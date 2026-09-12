@@ -18,6 +18,8 @@ services:
         value: "info"
       - key: RUST_BACKTRACE
         value: "1"
+      - key: RUST_VERSION
+        value: "stable"
     
     # Health check
     healthCheckPath: /health

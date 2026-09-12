@@ -1,5 +1,5 @@
 # Multi-stage Dockerfile for Chain Reaction Rust server
-FROM rust:1.80-slim as builder
+FROM rust:latest as builder
 
 WORKDIR /usr/src/app
 COPY Cargo.toml Cargo.lock ./
